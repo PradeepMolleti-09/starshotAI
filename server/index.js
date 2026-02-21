@@ -5,6 +5,7 @@ const connectDB = require('./config/db');
 const eventRoutes = require('./routes/eventRoutes');
 const photoRoutes = require('./routes/photoRoutes');
 const startCleanupJob = require('./jobs/cleanup');
+const mongoose = require('mongoose');
 
 dotenv.config();
 
@@ -40,6 +41,23 @@ app.use('/api/photos', photoRoutes);
 // Health Check
 app.get('/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date() });
+});
+
+// Deep Debugging Endpoint
+app.get('/api/debug/verify', async (req, res) => {
+    const diagnostic = {
+        time: new Date().toISOString(),
+        env: {
+            mongo: !!process.env.MONGO_URI,
+            cloudinaryCloud: !!process.env.CLOUDINARY_CLOUD_NAME,
+            cloudinaryKey: !!process.env.CLOUDINARY_API_KEY,
+            cloudinarySecret: !!process.env.CLOUDINARY_API_SECRET
+        },
+        mongoStatus: mongoose.connection.readyState === 1 ? 'CONNECTED' : 'DISCONNECTED',
+        architecture: process.arch,
+        memoryUsage: process.memoryUsage()
+    };
+    res.json(diagnostic);
 });
 
 // Start Cron Job
