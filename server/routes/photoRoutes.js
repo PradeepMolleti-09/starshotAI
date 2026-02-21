@@ -24,38 +24,48 @@ router.post('/upload', upload.array('photos'), async (req, res) => {
             return res.status(400).json({ message: 'Event is expired or not found' });
         }
 
-        const uploadAndProcess = async (file) => {
-            console.log(`Processing file: ${file.originalname}`);
+        // Process images one-by-one to prevent memory crashes on Render (limit 512MB)
+        const results = [];
+        for (const file of files) {
+            try {
+                console.log(`Processing: ${file.originalname}`);
 
-            // 1. Run Cloudinary upload and Face AI in parallel for each file
-            const [uploadResult, descriptors] = await Promise.all([
-                new Promise((resolve, reject) => {
-                    const stream = cloudinary.uploader.upload_stream({ folder: `starshot/${eventId}` }, (error, result) => {
-                        if (error) reject(error);
-                        else resolve(result);
-                    });
-                    stream.end(file.buffer);
-                }),
-                getDescriptors(file.buffer)
-            ]);
+                // Keep parallel Cloudinary + AI for a SINGLE photo to maintain speed
+                const [uploadResult, descriptors] = await Promise.all([
+                    new Promise((resolve, reject) => {
+                        const stream = cloudinary.uploader.upload_stream({ folder: `starshot/${eventId}` }, (error, result) => {
+                            if (error) {
+                                console.error('Cloudinary upload failure:', error);
+                                reject(new Error('Visual storage failed'));
+                            } else resolve(result);
+                        });
+                        stream.end(file.buffer);
+                    }),
+                    getDescriptors(file.buffer).catch(err => {
+                        console.error('Face Detection Error:', err.message);
+                        throw new Error('AI analysis failed');
+                    })
+                ]);
 
-            console.log(`Cloudinary done, found ${descriptors.length} faces in ${file.originalname}`);
+                const photo = new Photo({
+                    eventId,
+                    url: uploadResult.secure_url,
+                    publicId: uploadResult.public_id,
+                    faceDescriptors: descriptors,
+                });
+                await photo.save();
+                results.push(photo);
+                console.log(`Successfully processed ${file.originalname}`);
+            } catch (fileError) {
+                console.error(`Skipping ${file.originalname} due to error:`, fileError.message);
+            }
+        }
 
-            // 2. Save to DB
-            const photo = new Photo({
-                eventId,
-                url: uploadResult.secure_url,
-                publicId: uploadResult.public_id,
-                faceDescriptors: descriptors,
-            });
-            await photo.save();
-            return photo;
-        };
+        if (results.length === 0 && files.length > 0) {
+            throw new Error('All photos in this batch failed to process. Check Cloudinary or AI limits.');
+        }
 
-        // Process all files in parallel
-        const results = await Promise.all(files.map(file => uploadAndProcess(file)));
-
-        console.log('Upload process completed');
+        console.log(`Upload complete. Processed ${results.length}/${files.length} images.`);
         res.status(201).json(results);
     } catch (error) {
         console.error('Final upload error:', error);
