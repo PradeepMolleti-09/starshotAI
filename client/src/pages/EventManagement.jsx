@@ -304,10 +304,20 @@ const EventManagement = () => {
                                         <Maximize2 className="w-5 h-5" />
                                     </a>
                                 </div>
-                                {photo.faceDescriptors?.length > 0 && (
+                                {photo.processingStatus === 'processing' ? (
+                                    <div className="absolute top-3 left-3 px-2 py-1 bg-apple-blue/80 backdrop-blur-md rounded-lg text-[10px] text-white font-bold flex items-center gap-1 animate-pulse">
+                                        <Loader2 className="w-3 h-3 animate-spin" />
+                                        Processing AI...
+                                    </div>
+                                ) : photo.faceDescriptors?.length > 0 ? (
                                     <div className="absolute top-3 left-3 px-2 py-1 bg-white/20 backdrop-blur-md rounded-lg text-[10px] text-white font-bold flex items-center gap-1">
                                         <Users className="w-3 h-3" />
                                         {photo.faceDescriptors.length} {photo.faceDescriptors.length === 1 ? 'Face' : 'Faces'}
+                                    </div>
+                                ) : (
+                                    <div className="absolute top-3 left-3 px-2 py-1 bg-gray-500/50 backdrop-blur-md rounded-lg text-[10px] text-white font-bold flex items-center gap-1">
+                                        <Users className="w-3 h-3" />
+                                        No Faces Detected
                                     </div>
                                 )}
                             </motion.div>

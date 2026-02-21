@@ -24,56 +24,59 @@ router.post('/upload', upload.array('photos'), async (req, res) => {
             return res.status(400).json({ message: 'Event is expired or not found' });
         }
 
-        // Process images one-by-one to prevent memory crashes on Render (limit 512MB)
-        const results = [];
-        const errors = [];
+        // Helper for background AI processing
+        const processAIInBackground = async (photoId, buffer) => {
+            try {
+                console.log(`[Background AI] Starting for ${photoId}`);
+                const descriptors = await getDescriptors(buffer);
+                await Photo.findByIdAndUpdate(photoId, {
+                    faceDescriptors: descriptors,
+                    processingStatus: 'ready'
+                });
+                console.log(`[Background AI] Success for ${photoId} | Found ${descriptors.length} faces`);
+            } catch (err) {
+                console.error(`[Background AI] Failed for ${photoId}:`, err.message);
+                await Photo.findByIdAndUpdate(photoId, { processingStatus: 'failed' });
+            }
+        };
 
+        const results = [];
         for (const file of files) {
             try {
-                console.log(`Processing: ${file.originalname}`);
+                console.log(`Cloudinary Upload starting: ${file.originalname}`);
 
-                // Keep parallel Cloudinary + AI for a SINGLE photo to maintain speed
-                const [uploadResult, descriptors] = await Promise.all([
-                    new Promise((resolve, reject) => {
-                        const stream = cloudinary.uploader.upload_stream({ folder: `starshot/${eventId}` }, (error, result) => {
-                            if (error) {
-                                console.error('Cloudinary Error Details:', error);
-                                reject(new Error(error.message || 'Storage rejected the file'));
-                            } else resolve(result);
-                        });
-                        stream.end(file.buffer);
-                    }),
-                    getDescriptors(file.buffer).catch(err => {
-                        console.error('Face Detection Error Details:', err.message);
-                        throw new Error('AI Engine failed: ' + err.message);
-                    })
-                ]);
+                // 1. Upload to Cloudinary (Fast)
+                const uploadResult = await new Promise((resolve, reject) => {
+                    const stream = cloudinary.uploader.upload_stream({ folder: `starshot/${eventId}` }, (error, result) => {
+                        if (error) reject(new Error(error.message || 'Cloudinary rejected the file'));
+                        else resolve(result);
+                    });
+                    stream.end(file.buffer);
+                });
 
+                // 2. Immediate DB save with 'processing' status
                 const photo = new Photo({
                     eventId,
                     url: uploadResult.secure_url,
                     publicId: uploadResult.public_id,
-                    faceDescriptors: descriptors,
+                    processingStatus: 'processing'
                 });
                 await photo.save();
                 results.push(photo);
-            } catch (fileError) {
-                console.error(`Skipping ${file.originalname}:`, fileError.message);
-                errors.push(`${file.originalname}: ${fileError.message}`);
-            }
-        }
 
-        if (results.length === 0 && files.length > 0) {
-            return res.status(500).json({
-                message: 'All photos failed to process.',
-                details: errors.join(' | ')
-            });
+                // 3. Start AI work in background (DO NOT await)
+                processAIInBackground(photo._id, file.buffer);
+
+                console.log(`Initial save complete for: ${file.originalname}`);
+            } catch (fileError) {
+                console.error(`Upload error for ${file.originalname}:`, fileError.message);
+            }
         }
 
         res.status(201).json({
             success: true,
             results,
-            errors
+            message: 'Upload successful. AI is processing in the background.'
         });
     } catch (error) {
         console.error('Final upload error:', error);
