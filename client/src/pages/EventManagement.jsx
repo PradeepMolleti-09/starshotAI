@@ -17,6 +17,7 @@ const EventManagement = () => {
     const [uploading, setUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(0);
     const [uploadStatus, setUploadStatus] = useState('');
+    const [deleteModal, setDeleteModal] = useState({ open: false, photoId: null });
     const fileInputRef = useRef(null);
 
     useEffect(() => {
@@ -150,14 +151,23 @@ const EventManagement = () => {
         }
     };
 
-    const handleDeletePhoto = async (photoId) => {
-        if (!window.confirm("Are you sure you want to delete this photo?")) return;
+    const handleDeletePhoto = (photoId) => {
+        setDeleteModal({ open: true, photoId });
+    };
+
+    const confirmDelete = async () => {
+        const { photoId } = deleteModal;
+        if (!photoId) return;
+
         try {
             await axios.delete(`/api/photos/${photoId}`);
             setPhotos(photos.filter(p => p._id !== photoId));
-            fetchEventDetails(); // Update photo count
+            fetchEventDetails();
+            setDeleteModal({ open: false, photoId: null });
         } catch (error) {
             console.error("Failed to delete photo:", error);
+            alert("Failed to delete photo");
+            setDeleteModal({ open: false, photoId: null });
         }
     };
 
@@ -291,6 +301,48 @@ const EventManagement = () => {
                     </AnimatePresence>
                 </div>
             )}
+            {/* Custom Delete Confirmation Modal */}
+            <AnimatePresence>
+                {deleteModal.open && (
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            onClick={() => setDeleteModal({ open: false, photoId: null })}
+                            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+                        />
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                            className="relative bg-white rounded-[2rem] p-8 max-w-sm w-full shadow-2xl overflow-hidden"
+                        >
+                            <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
+                                <Trash2 className="w-8 h-8 text-red-500" />
+                            </div>
+                            <h3 className="text-2xl font-bold text-apple-black text-center mb-2">Delete Photo?</h3>
+                            <p className="text-apple-darkGray text-center mb-8">
+                                This action cannot be undone. The photo will be permanently removed from the event gallery.
+                            </p>
+                            <div className="flex flex-col gap-3">
+                                <button
+                                    onClick={confirmDelete}
+                                    className="w-full py-4 bg-red-500 text-white font-bold rounded-2xl hover:bg-red-600 transition-colors shadow-lg shadow-red-100"
+                                >
+                                    Delete Permanently
+                                </button>
+                                <button
+                                    onClick={() => setDeleteModal({ open: false, photoId: null })}
+                                    className="w-full py-4 bg-gray-100 text-apple-black font-bold rounded-2xl hover:bg-gray-200 transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
         </div>
     );
 };
