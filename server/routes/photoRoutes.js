@@ -11,50 +11,89 @@ const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
 // Upload Photos
-router.post('/upload', upload.array('photos'), async (req, res) => {
-    const { eventId } = req.body;
-    const files = req.files;
+const mongoose = require('mongoose');
 
-    console.log(`Starting upload for event: ${eventId}, files count: ${files?.length}`);
+// --- Singleton Background Queue to prevent memory crashes on Render (512MB RAM) ---
+const aiQueue = [];
+let isProcessingQueue = false;
+
+const processNextInQueue = async () => {
+    if (isProcessingQueue || aiQueue.length === 0) return;
+
+    isProcessingQueue = true;
+    const task = aiQueue.shift();
 
     try {
-        const event = await Event.findById(eventId);
-        if (!event || event.isExpired) {
-            console.log('Event not found or expired');
-            return res.status(400).json({ message: 'Event is expired or not found' });
+        console.log(`[AI Queue] Processing Photo: ${task.photoId} | Queue Depth: ${aiQueue.length}`);
+        const descriptors = await getDescriptors(task.buffer);
+
+        await Photo.findByIdAndUpdate(task.photoId, {
+            faceDescriptors: descriptors,
+            processingStatus: 'ready'
+        });
+        console.log(`[AI Queue] Success: ${task.photoId}`);
+    } catch (err) {
+        console.error(`[AI Queue] Fatal for ${task.photoId}:`, err.message);
+        try {
+            await Photo.findByIdAndUpdate(task.photoId, { processingStatus: 'failed' });
+        } catch (dbErr) {
+            console.error(`[AI Queue] DB Status Update failed:`, dbErr.message);
+        }
+    } finally {
+        isProcessingQueue = false;
+        // Small delay to allow Garbage Collection to breathe
+        setTimeout(processNextInQueue, 300);
+    }
+};
+
+// Upload Photos
+router.post('/upload', upload.array('photos'), async (req, res) => {
+    const requestStart = Date.now();
+    console.log(`\n>>> INCOMING UPLOAD: ${new Date().toISOString()}`);
+
+    try {
+        const { eventId } = req.body;
+        const files = req.files;
+
+        // 1. Precise Validation
+        if (!eventId || !mongoose.Types.ObjectId.isValid(eventId)) {
+            console.error(`Invalid Event ID: ${eventId}`);
+            return res.status(400).json({ message: 'Missing or Invalid Event ID' });
         }
 
-        // Helper for background AI processing
-        const processAIInBackground = async (photoId, buffer) => {
-            try {
-                console.log(`[Background AI] Starting for ${photoId}`);
-                const descriptors = await getDescriptors(buffer);
-                await Photo.findByIdAndUpdate(photoId, {
-                    faceDescriptors: descriptors,
-                    processingStatus: 'ready'
-                });
-                console.log(`[Background AI] Success for ${photoId} | Found ${descriptors.length} faces`);
-            } catch (err) {
-                console.error(`[Background AI] Failed for ${photoId}:`, err.message);
-                await Photo.findByIdAndUpdate(photoId, { processingStatus: 'failed' });
-            }
-        };
+        if (!files || files.length === 0) {
+            console.error('No files received in multipart request');
+            return res.status(400).json({ message: 'No photos received' });
+        }
 
+        const event = await Event.findById(eventId);
+        if (!event) {
+            console.error(`Event ${eventId} not found`);
+            return res.status(404).json({ message: 'Event not found' });
+        }
+
+        console.log(`Event Context: ${event.name} | Files: ${files.length}`);
+
+        // 2. Sequential Cloudinary Uploads (Safety First)
         const results = [];
         for (const file of files) {
             try {
-                console.log(`Cloudinary Upload starting: ${file.originalname}`);
+                console.log(`Streaming to Cloudinary: ${file.originalname}`);
 
-                // 1. Upload to Cloudinary (Fast)
                 const uploadResult = await new Promise((resolve, reject) => {
-                    const stream = cloudinary.uploader.upload_stream({ folder: `starshot/${eventId}` }, (error, result) => {
-                        if (error) reject(new Error(error.message || 'Cloudinary rejected the file'));
-                        else resolve(result);
+                    const stream = cloudinary.uploader.upload_stream({
+                        folder: `starshot/${eventId}`,
+                        resource_type: 'image'
+                    }, (error, result) => {
+                        if (error) {
+                            console.error('Cloudinary Error:', error);
+                            reject(new Error(error.message));
+                        } else resolve(result);
                     });
                     stream.end(file.buffer);
                 });
 
-                // 2. Immediate DB save with 'processing' status
+                // Immediate DB shadow entry
                 const photo = new Photo({
                     eventId,
                     url: uploadResult.secure_url,
@@ -64,23 +103,32 @@ router.post('/upload', upload.array('photos'), async (req, res) => {
                 await photo.save();
                 results.push(photo);
 
-                // 3. Start AI work in background (DO NOT await)
-                processAIInBackground(photo._id, file.buffer);
+                // Push to Background Queue (RAM safe)
+                aiQueue.push({ photoId: photo._id, buffer: file.buffer });
+                processNextInQueue();
 
-                console.log(`Initial save complete for: ${file.originalname}`);
             } catch (fileError) {
-                console.error(`Upload error for ${file.originalname}:`, fileError.message);
+                console.error(`Sub-task failed for ${file.originalname}:`, fileError.message);
             }
         }
 
+        if (results.length === 0) {
+            throw new Error('Could not save any photos. Check Cloudinary/DB status.');
+        }
+
+        console.log(`<<< RESPONSE SENT in ${Date.now() - requestStart}ms`);
         res.status(201).json({
             success: true,
             results,
-            message: 'Upload successful. AI is processing in the background.'
+            message: 'Photos uploaded. AI processing is queued in background.'
         });
+
     } catch (error) {
-        console.error('Final upload error:', error);
-        res.status(500).json({ message: error.message });
+        console.error('CRITICAL UPLOAD ROUTE CRASH:', error);
+        res.status(500).json({
+            message: 'Internal processing error',
+            details: error.message
+        });
     }
 });
 
