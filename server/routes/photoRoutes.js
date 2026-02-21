@@ -24,30 +24,24 @@ router.post('/upload', upload.array('photos'), async (req, res) => {
             return res.status(400).json({ message: 'Event is expired or not found' });
         }
 
-        const results = [];
-        for (const file of files) {
+        const uploadAndProcess = async (file) => {
             console.log(`Processing file: ${file.originalname}`);
 
-            // 1. Upload to Cloudinary
-            const uploadResult = await new Promise((resolve, reject) => {
-                const stream = cloudinary.uploader.upload_stream({ folder: `starshot/${eventId}` }, (error, result) => {
-                    if (error) {
-                        console.error('Cloudinary upload error:', error);
-                        reject(error);
-                    } else {
-                        console.log('Cloudinary upload success');
-                        resolve(result);
-                    }
-                });
-                stream.end(file.buffer);
-            });
+            // 1. Run Cloudinary upload and Face AI in parallel for each file
+            const [uploadResult, descriptors] = await Promise.all([
+                new Promise((resolve, reject) => {
+                    const stream = cloudinary.uploader.upload_stream({ folder: `starshot/${eventId}` }, (error, result) => {
+                        if (error) reject(error);
+                        else resolve(result);
+                    });
+                    stream.end(file.buffer);
+                }),
+                getDescriptors(file.buffer)
+            ]);
 
-            // 2. Get Face Descriptors
-            console.log('Getting face descriptors...');
-            const descriptors = await getDescriptors(file.buffer);
-            console.log(`Found ${descriptors.length} faces`);
+            console.log(`Cloudinary done, found ${descriptors.length} faces in ${file.originalname}`);
 
-            // 3. Save to DB
+            // 2. Save to DB
             const photo = new Photo({
                 eventId,
                 url: uploadResult.secure_url,
@@ -55,9 +49,11 @@ router.post('/upload', upload.array('photos'), async (req, res) => {
                 faceDescriptors: descriptors,
             });
             await photo.save();
-            console.log('Photo saved to DB');
-            results.push(photo);
-        }
+            return photo;
+        };
+
+        // Process all files in parallel
+        const results = await Promise.all(files.map(file => uploadAndProcess(file)));
 
         console.log('Upload process completed');
         res.status(201).json(results);
