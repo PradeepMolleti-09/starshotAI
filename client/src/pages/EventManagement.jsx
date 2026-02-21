@@ -44,20 +44,67 @@ const EventManagement = () => {
         }
     };
 
+    const resizeImage = (file) => {
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = (event) => {
+                const img = new Image();
+                img.src = event.target.result;
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const MAX_WIDTH = 1920;
+                    const MAX_HEIGHT = 1080;
+                    let width = img.width;
+                    let height = img.height;
+
+                    if (width > height) {
+                        if (width > MAX_WIDTH) {
+                            height *= MAX_WIDTH / width;
+                            width = MAX_WIDTH;
+                        }
+                    } else {
+                        if (height > MAX_HEIGHT) {
+                            width *= MAX_HEIGHT / height;
+                            height = MAX_HEIGHT;
+                        }
+                    }
+
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+
+                    canvas.toBlob((blob) => {
+                        const resizedFile = new File([blob], file.name, {
+                            type: 'image/jpeg',
+                            lastModified: Date.now(),
+                        });
+                        resolve(resizedFile);
+                    }, 'image/jpeg', 0.85); // 85% quality JPEG
+                };
+            };
+        });
+    };
+
     const handleFileUpload = async (files) => {
         if (!files.length) return;
         setUploading(true);
         setUploadProgress(0);
 
-        const formData = new FormData();
-        formData.append('eventId', eventId);
-        Array.from(files).forEach((file) => {
-            formData.append('photos', file);
-        });
-
         try {
-            // Note: Actual progress tracking with axios needs configuration
-            // For simplicity, we'll simulate progress or just show a loader
+            const formData = new FormData();
+            formData.append('eventId', eventId);
+
+            console.log('Optimizing images before upload...');
+            const optimizedFiles = await Promise.all(
+                Array.from(files).map(file => resizeImage(file))
+            );
+
+            optimizedFiles.forEach((file) => {
+                formData.append('photos', file);
+            });
+
             await axios.post('/api/photos/upload', formData, {
                 headers: { 'Content-Type': 'multipart/form-data' },
                 onUploadProgress: (progressEvent) => {
@@ -65,8 +112,9 @@ const EventManagement = () => {
                     setUploadProgress(percentCompleted);
                 }
             });
+
             fetchPhotos();
-            fetchEventDetails(); // Update photo count
+            fetchEventDetails();
         } catch (error) {
             alert("Upload failed: " + (error.response?.data?.message || error.message));
         } finally {
