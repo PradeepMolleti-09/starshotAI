@@ -6,12 +6,13 @@ const Photo = require('../models/Photo');
 const Event = require('../models/Event');
 const { getDescriptors } = require('../utils/faceApi');
 const faceapi = require('face-api.js');
+const mongoose = require('mongoose');
 
 const storage = multer.memoryStorage();
-const upload = multer({ storage });
-
-// Upload Photos
-const mongoose = require('mongoose');
+const upload = multer({
+    storage,
+    limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit per photo
+});
 
 // --- Singleton Background Queue to prevent memory crashes on Render (512MB RAM) ---
 const aiQueue = [];
@@ -55,16 +56,17 @@ router.post('/upload', upload.array('photos'), async (req, res) => {
         const { eventId } = req.body;
         const files = req.files;
 
-        // 1. Precise Validation
         if (!eventId || !mongoose.Types.ObjectId.isValid(eventId)) {
-            console.error(`Invalid Event ID: ${eventId}`);
+            console.error(`>>> UPLOAD REJECTED: Invalid Event ID: ${eventId}`);
             return res.status(400).json({ message: 'Missing or Invalid Event ID' });
         }
 
         if (!files || files.length === 0) {
-            console.error('No files received in multipart request');
+            console.error('>>> UPLOAD REJECTED: No files in request');
             return res.status(400).json({ message: 'No photos received' });
         }
+
+        console.log(`>>> PROCESSING ${files.length} FILES for Event: ${eventId}`);
 
         const event = await Event.findById(eventId);
         if (!event) {
