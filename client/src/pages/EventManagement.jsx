@@ -105,48 +105,62 @@ const EventManagement = () => {
         if (!files.length) return;
         setUploading(true);
         setUploadProgress(0);
-        setUploadStatus('Optimizing images...');
+
+        const totalFiles = files.length;
+        let successCount = 0;
+        let failCount = 0;
 
         try {
-            const formData = new FormData();
-            formData.append('eventId', eventId);
+            // Process images one by one from the client side
+            // This is critical for Render/Vercel timeout limits
+            for (let i = 0; i < totalFiles; i++) {
+                const file = files[i];
+                const currentFileNum = i + 1;
 
-            // Limit concurrency of resizing to avoid crashing browser memory
-            const optimizedFiles = [];
-            for (let i = 0; i < files.length; i++) {
-                setUploadStatus(`Optimizing image ${i + 1} of ${files.length}...`);
-                const optimized = await resizeImage(files[i]);
-                optimizedFiles.push(optimized);
+                try {
+                    setUploadStatus(`Optimizing ${currentFileNum}/${totalFiles}...`);
+                    const optimizedFile = await resizeImage(file);
+
+                    const formData = new FormData();
+                    formData.append('eventId', eventId);
+                    formData.append('photos', optimizedFile); // Backend handles single photo in an array
+
+                    setUploadStatus(`Uploading ${currentFileNum}/${totalFiles}...`);
+
+                    await axios.post('/api/photos/upload', formData, {
+                        headers: { 'Content-Type': 'multipart/form-data' },
+                        onUploadProgress: (progressEvent) => {
+                            const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+                            if (percentCompleted === 100) {
+                                setUploadStatus(`AI Scanning ${currentFileNum}/${totalFiles}...`);
+                            } else {
+                                // Local progress for this specific file
+                                setUploadProgress(Math.floor(((i + (percentCompleted / 100)) / totalFiles) * 100));
+                            }
+                        }
+                    });
+
+                    successCount++;
+                    fetchPhotos(); // Show the photo immediately
+                } catch (err) {
+                    console.error(`Failed to upload ${file.name}:`, err);
+                    failCount++;
+                }
+
+                // Update global progress
+                setUploadProgress(Math.round(((i + 1) / totalFiles) * 100));
             }
 
-            setUploadStatus('Sending to server...');
-            optimizedFiles.forEach((file) => {
-                formData.append('photos', file);
-            });
-
-            await axios.post('/api/photos/upload', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' },
-                onUploadProgress: (progressEvent) => {
-                    const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-                    setUploadProgress(percentCompleted);
-                    if (percentCompleted === 100) {
-                        setUploadStatus('AI: Detecting faces & matching...');
-                    } else {
-                        setUploadStatus(`Uploading... ${percentCompleted}%`);
-                    }
-                }
-            });
-
-            setUploadStatus('Success!');
-            fetchPhotos();
+            setUploadStatus(failCount > 0 ? `Done! (${successCount} saved, ${failCount} failed)` : 'All photos saved!');
             fetchEventDetails();
         } catch (error) {
-            const errorMsg = error.response?.data?.details || error.response?.data?.message || error.message;
-            alert("Upload failed: " + errorMsg);
+            console.error("Batch process error:", error);
         } finally {
-            setUploading(false);
-            setUploadProgress(0);
-            setUploadStatus('');
+            setTimeout(() => {
+                setUploading(false);
+                setUploadProgress(0);
+                setUploadStatus('');
+            }, 3000);
             if (fileInputRef.current) fileInputRef.current.value = '';
         }
     };
