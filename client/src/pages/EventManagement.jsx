@@ -140,7 +140,8 @@ const EventManagement = () => {
             fetchPhotos();
             fetchEventDetails();
         } catch (error) {
-            alert("Upload failed: " + (error.response?.data?.message || error.message));
+            const errorMsg = error.response?.data?.details || error.response?.data?.message || error.message;
+            alert("Upload failed: " + errorMsg);
         } finally {
             setUploading(false);
             setUploadProgress(0);

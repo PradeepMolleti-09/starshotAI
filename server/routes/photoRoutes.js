@@ -26,6 +26,8 @@ router.post('/upload', upload.array('photos'), async (req, res) => {
 
         // Process images one-by-one to prevent memory crashes on Render (limit 512MB)
         const results = [];
+        const errors = [];
+
         for (const file of files) {
             try {
                 console.log(`Processing: ${file.originalname}`);
@@ -35,15 +37,15 @@ router.post('/upload', upload.array('photos'), async (req, res) => {
                     new Promise((resolve, reject) => {
                         const stream = cloudinary.uploader.upload_stream({ folder: `starshot/${eventId}` }, (error, result) => {
                             if (error) {
-                                console.error('Cloudinary upload failure:', error);
-                                reject(new Error('Visual storage failed'));
+                                console.error('Cloudinary Error Details:', error);
+                                reject(new Error(error.message || 'Storage rejected the file'));
                             } else resolve(result);
                         });
                         stream.end(file.buffer);
                     }),
                     getDescriptors(file.buffer).catch(err => {
-                        console.error('Face Detection Error:', err.message);
-                        throw new Error('AI analysis failed');
+                        console.error('Face Detection Error Details:', err.message);
+                        throw new Error('AI Engine failed: ' + err.message);
                     })
                 ]);
 
@@ -55,18 +57,24 @@ router.post('/upload', upload.array('photos'), async (req, res) => {
                 });
                 await photo.save();
                 results.push(photo);
-                console.log(`Successfully processed ${file.originalname}`);
             } catch (fileError) {
-                console.error(`Skipping ${file.originalname} due to error:`, fileError.message);
+                console.error(`Skipping ${file.originalname}:`, fileError.message);
+                errors.push(`${file.originalname}: ${fileError.message}`);
             }
         }
 
         if (results.length === 0 && files.length > 0) {
-            throw new Error('All photos in this batch failed to process. Check Cloudinary or AI limits.');
+            return res.status(500).json({
+                message: 'All photos failed to process.',
+                details: errors.join(' | ')
+            });
         }
 
-        console.log(`Upload complete. Processed ${results.length}/${files.length} images.`);
-        res.status(201).json(results);
+        res.status(201).json({
+            success: true,
+            results,
+            errors
+        });
     } catch (error) {
         console.error('Final upload error:', error);
         res.status(500).json({ message: error.message });
