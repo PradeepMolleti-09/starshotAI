@@ -16,12 +16,25 @@ const EventManagement = () => {
     const [loading, setLoading] = useState(true);
     const [uploading, setUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(0);
+    const [uploadStatus, setUploadStatus] = useState('');
     const fileInputRef = useRef(null);
 
     useEffect(() => {
         fetchEventDetails();
         fetchPhotos();
     }, [eventId]);
+
+    // Prevent accidental refresh during upload
+    useEffect(() => {
+        const handleBeforeUnload = (e) => {
+            if (uploading) {
+                e.preventDefault();
+                e.returnValue = '';
+            }
+        };
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }, [uploading]);
 
     const fetchEventDetails = async () => {
         try {
@@ -91,16 +104,21 @@ const EventManagement = () => {
         if (!files.length) return;
         setUploading(true);
         setUploadProgress(0);
+        setUploadStatus('Optimizing images...');
 
         try {
             const formData = new FormData();
             formData.append('eventId', eventId);
 
-            console.log('Optimizing images before upload...');
-            const optimizedFiles = await Promise.all(
-                Array.from(files).map(file => resizeImage(file))
-            );
+            // Limit concurrency of resizing to avoid crashing browser memory
+            const optimizedFiles = [];
+            for (let i = 0; i < files.length; i++) {
+                setUploadStatus(`Optimizing image ${i + 1} of ${files.length}...`);
+                const optimized = await resizeImage(files[i]);
+                optimizedFiles.push(optimized);
+            }
 
+            setUploadStatus('Sending to server...');
             optimizedFiles.forEach((file) => {
                 formData.append('photos', file);
             });
@@ -110,9 +128,15 @@ const EventManagement = () => {
                 onUploadProgress: (progressEvent) => {
                     const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
                     setUploadProgress(percentCompleted);
+                    if (percentCompleted === 100) {
+                        setUploadStatus('AI: Detecting faces & matching...');
+                    } else {
+                        setUploadStatus(`Uploading... ${percentCompleted}%`);
+                    }
                 }
             });
 
+            setUploadStatus('Success!');
             fetchPhotos();
             fetchEventDetails();
         } catch (error) {
@@ -120,6 +144,7 @@ const EventManagement = () => {
         } finally {
             setUploading(false);
             setUploadProgress(0);
+            setUploadStatus('');
             if (fileInputRef.current) fileInputRef.current.value = '';
         }
     };
@@ -187,7 +212,7 @@ const EventManagement = () => {
                     {uploading ? (
                         <div className="flex flex-col items-center">
                             <Loader2 className="w-12 h-12 text-apple-blue animate-spin mb-4" />
-                            <p className="text-apple-black font-semibold">Uploading {uploadProgress}%</p>
+                            <p className="text-apple-black font-semibold">{uploadStatus}</p>
                             <div className="w-64 h-2 bg-gray-100 rounded-full mt-4 overflow-hidden">
                                 <motion.div
                                     initial={{ width: 0 }}
@@ -195,6 +220,7 @@ const EventManagement = () => {
                                     className="h-full bg-apple-blue"
                                 />
                             </div>
+                            <p className="text-apple-darkGray text-xs mt-3 uppercase tracking-widest font-bold">Do not refresh or close this tab</p>
                         </div>
                     ) : (
                         <>
