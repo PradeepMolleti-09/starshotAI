@@ -13,6 +13,15 @@ const app = express();
 // Connect Database
 connectDB();
 
+// Env Status Check
+console.log('--- Environment Configuration ---');
+console.log(`PORT: ${process.env.PORT || 5000}`);
+console.log(`MONGO_URI: ${process.env.MONGO_URI ? 'Defined' : 'MISSING'}`);
+console.log(`CLOUDINARY_CLOUD_NAME: ${process.env.CLOUDINARY_CLOUD_NAME || 'MISSING'}`);
+console.log(`CLOUDINARY_API_KEY: ${process.env.CLOUDINARY_API_KEY ? 'Defined' : 'MISSING'}`);
+console.log(`CLOUDINARY_API_SECRET: ${process.env.CLOUDINARY_API_SECRET ? 'Defined' : 'MISSING'}`);
+console.log('---------------------------------');
+
 // Middleware
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
