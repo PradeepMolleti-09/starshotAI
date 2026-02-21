@@ -47,6 +47,9 @@ startCleanupJob();
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
+
+// Increase timeout for AI processing
+server.timeout = 300000; // 5 minutes

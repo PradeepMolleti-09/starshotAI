@@ -12,8 +12,8 @@ const loadModels = async () => {
     const modelPath = path.join(__dirname, '../models');
     console.log(`Loading face-api models from: ${modelPath}`);
     try {
-        await faceapi.nets.ssdMobilenetv1.loadFromDisk(modelPath);
-        console.log('ssdMobilenetv1 loaded');
+        await faceapi.nets.tinyFaceDetector.loadFromDisk(modelPath);
+        console.log('tinyFaceDetector loaded');
         await faceapi.nets.faceLandmark68Net.loadFromDisk(modelPath);
         console.log('faceLandmark68Net loaded');
         await faceapi.nets.faceRecognitionNet.loadFromDisk(modelPath);
@@ -33,7 +33,7 @@ const getDescriptors = async (imageBuffer) => {
         const img = await canvas.loadImage(imageBuffer);
         console.log('Image loaded into canvas, detecting faces...');
 
-        const detections = await faceapi.detectAllFaces(img)
+        const detections = await faceapi.detectAllFaces(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 256, scoreThreshold: 0.5 }))
             .withFaceLandmarks()
             .withFaceDescriptors();
 
