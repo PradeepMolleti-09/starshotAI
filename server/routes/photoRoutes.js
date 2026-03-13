@@ -42,8 +42,12 @@ const processNextInQueue = async () => {
         }
     } finally {
         isProcessingQueue = false;
-        // Small delay to allow Garbage Collection to breathe
-        setTimeout(processNextInQueue, 300);
+        // Monitor memory usage
+        const mem = process.memoryUsage();
+        console.log(`[AI Queue] Mem: ${Math.round(mem.rss / 1024 / 1024)}MB | Waiting for next...`);
+        
+        // Larger delay to ensure Garbage Collection completes after heavy SSD task
+        setTimeout(processNextInQueue, 800);
     }
 };
 
