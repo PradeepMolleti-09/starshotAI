@@ -33,7 +33,10 @@ const getDescriptors = async (imageBuffer) => {
         const img = await canvas.loadImage(imageBuffer);
         console.log('Image loaded into canvas, detecting faces...');
 
-        const detections = await faceapi.detectAllFaces(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 256, scoreThreshold: 0.5 }))
+        const detections = await faceapi.detectAllFaces(img, new faceapi.TinyFaceDetectorOptions({ 
+            inputSize: 416, // Typical size for better accuracy
+            scoreThreshold: 0.5 
+        }))
             .withFaceLandmarks()
             .withFaceDescriptors();
 

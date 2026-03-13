@@ -17,6 +17,7 @@ const FanPage = () => {
     const [searched, setSearched] = useState(false);
     const [selfiePreview, setSelfiePreview] = useState(null);
     const fileInputRef = useRef(null);
+    const libraryInputRef = useRef(null);
 
     useEffect(() => {
         fetchEventDetails();
@@ -136,6 +137,13 @@ const FanPage = () => {
                                     ref={fileInputRef}
                                     onChange={(e) => handleSelfieUpload(e.target.files[0])}
                                 />
+                                <input
+                                    type="file"
+                                    accept="image/*"
+                                    className="hidden"
+                                    ref={libraryInputRef}
+                                    onChange={(e) => handleSelfieUpload(e.target.files[0])}
+                                />
 
                                 <div className="space-y-4">
                                     <button
@@ -146,7 +154,7 @@ const FanPage = () => {
                                         <span>Open Camera</span>
                                     </button>
                                     <button
-                                        onClick={() => fileInputRef.current?.click()}
+                                        onClick={() => libraryInputRef.current?.click()}
                                         className="w-full apple-button-secondary !py-4 text-apple-darkGray flex items-center justify-center space-x-2"
                                     >
                                         <Upload className="w-5 h-5" />
